@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "CloneDynamoDbTable": {
+      "commandName": "Project",
+      "commandLineArgs": "--table-name booking-development-customers --settings-file-path \"C:\\Users\\RenatoGolia\\Development\\InsightArchitectures\\Tools\\CloneDynamoDbTable\\src\\CloneDynamoDbTable\\\\testsettings.json\"  --target-table-name foo --clone-content true"
+    }
+  }
+}
