@@ -30,7 +30,7 @@ The tool can be configured using the following options
 
 |Option|Description|Required|Default|
 |-|-|-|-|
-|`--source-table-name <source-table-name>`|The source table to copy.|no||
+|`--source-table-name <source-table-name>`|The source table to copy.|yes||
 |`--source-profile <source-profile>`|The profile to be used to access the source table.|no||
 |`--source-region <source-region>`|The region where the source table is located.|no||
 |`--source-service-url <source-service-url>`|The service url to be used to access the source table.|no||
