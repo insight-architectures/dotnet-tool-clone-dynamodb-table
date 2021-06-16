@@ -26,9 +26,6 @@ artifacts:
     name: packages
   - path: outputs\*.snupkg
     name: symbols
-  - path: outputs\tests\report
-    name: report
-    type: zip
 
 deploy:
   - provider: Environment

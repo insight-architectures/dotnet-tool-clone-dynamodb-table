@@ -106,14 +106,14 @@ Task("UploadTestsToAppVeyor")
     .Does<BuildState>(state =>
 {
     Information("Uploading test result files to AppVeyor");
-    var testResultFiles = GetFiles($"{state.Paths.TestOutputFolder}/*.trx");
+    var testResultFiles = GetFiles($"{state.Paths.TestOutputFolder}/**/TestResults.xml");
 
     foreach (var file in testResultFiles)
     {
         Information($"\tUploading {file.GetFilename()}");
         try
         {
-            AppVeyor.UploadTestResults(file, AppVeyorTestResultsType.MSTest);
+            AppVeyor.UploadTestResults(file, AppVeyorTestResultsType.NUnit);
         }
         catch 
         {
@@ -141,7 +141,6 @@ Task("PackLibraries")
                             .SetInformationalVersion(state.Version.AssemblyVersion)
                             .SetVersion(state.Version.PackageVersion)
                             .WithProperty("ContinuousIntegrationBuild", "true"),
-        //ArgumentCustomization = args => args.Append($"-p:SymbolPackageFormat=snupkg -p:Version={state.Version.PackageVersion}")
     };
 
     if (skipVerification)
