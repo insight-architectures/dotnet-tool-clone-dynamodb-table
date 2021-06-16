@@ -13,7 +13,39 @@ namespace CloneDynamoDbTable
 {
     class Program
     {
-        static async Task Main(string tableName, string targetTableName = null, string settingsFilePath = null, bool cloneContent = false)
+        /// <summary>
+        /// A tool to copy a AWS DynamoDB table and optionally its content from an account to another.
+        /// </summary>
+        /// <param name="sourceTableName">The source table to copy.</param>
+        /// <param name="sourceProfile">The profile to be used to access the source table.</param>
+        /// <param name="sourceRegion">The region where the source table is located.</param>
+        /// <param name="sourceServiceUrl">The service url to be used to access the source table.</param>
+        /// <param name="sourceAccessKey">The access key to be used to access the source table.</param>
+        /// <param name="sourceSecretKey">The secret key to be used to access the source table.</param>
+        /// <param name="targetTableName">The target table to copy.</param>
+        /// <param name="targetProfile">The profile to be used to access the target table.</param>
+        /// <param name="targetRegion">The region where the target table is located.</param>
+        /// <param name="targetServiceUrl">The service url to be used to access the target table.</param>
+        /// <param name="targetAccessKey">The access key to be used to access the target table.</param>
+        /// <param name="targetSecretKey">The secret key to be used to access the target table.</param>
+        /// <param name="settingsFilePath">The path to a JSON file containing settings to be used.</param>
+        /// <param name="cloneContent">Specifies whether the content of the source table should be cloned in the target table.</param>
+        public static async Task Main(
+            string sourceTableName,
+            string sourceProfile = null,
+            string sourceRegion = null,
+            Uri sourceServiceUrl = null,
+            string sourceAccessKey = null,
+            string sourceSecretKey = null,
+            string targetTableName = null,
+            string targetProfile = null,
+            string targetRegion = null,
+            Uri targetServiceUrl = null,
+            string targetAccessKey = null,
+            string targetSecretKey = null,
+            string settingsFilePath = null,
+            bool cloneContent = false
+        )
         {
             var configurationBuilder = new ConfigurationBuilder();
 
@@ -22,10 +54,34 @@ namespace CloneDynamoDbTable
                 configurationBuilder.AddJsonFile(settingsFilePath);
             }
 
-            configurationBuilder.AddEnvironmentVariables();
+            configurationBuilder.AddObject(new
+            {
+                Source = new
+                {
+                    Profile = sourceProfile,
+                    Region = sourceRegion,
+                    ServiceURL = sourceServiceUrl,
+                    Credentials = new
+                    {
+                        AccessKey = sourceAccessKey,
+                        SecretKey = sourceSecretKey
+                    }
+                },
+                Target = new
+                {
+                    Profile = targetProfile,
+                    Region = targetRegion,
+                    ServiceURL = targetServiceUrl,
+                    Credentials = new
+                    {
+                        AccessKey = targetAccessKey,
+                        SecretKey = targetSecretKey
+                    }
+                }
+            });
 
             var configuration = configurationBuilder.Build();
-
+            
             var source = GetOptions(configuration, "Source");
 
             var target = GetOptions(configuration, "Target");
@@ -34,21 +90,19 @@ namespace CloneDynamoDbTable
 
             var targetClient = target.CreateServiceClient<IAmazonDynamoDB>();
 
-            var manager = new TableManager(sourceClient, targetClient);
-
             try
             {
-                targetTableName ??= tableName;
+                targetTableName ??= sourceTableName;
 
-                Console.WriteLine($"Copying {tableName} into table {targetTableName}");
+                Console.WriteLine($"Copying {sourceTableName} into table {targetTableName}");
 
-                await manager.CopyTableAsync(tableName, targetTableName);
+                await new DuplicateTableCommand(sourceClient, targetClient, sourceTableName, targetTableName).ExecuteAsync();
 
                 if (cloneContent)
                 {
-                    Console.WriteLine($"Cloning {tableName} content into table {targetTableName}");
+                    Console.WriteLine($"Cloning {sourceTableName} content into table {targetTableName}");
 
-                    await manager.CloneContentAsync(tableName, targetTableName);
+                    await new CloneTableContentCommand(sourceClient, targetClient, sourceTableName, targetTableName).ExecuteAsync();
                 }
             }
             catch (Exception ex)
@@ -80,26 +134,30 @@ namespace CloneDynamoDbTable
         }
     }
 
-    public class TableManager
+    internal class DuplicateTableCommand
     {
         private readonly IAmazonDynamoDB _source;
         private readonly IAmazonDynamoDB _target;
+        private readonly string _tableName;
+        private readonly string _targetTableName;
 
-        public TableManager(IAmazonDynamoDB source, IAmazonDynamoDB target)
+        public DuplicateTableCommand(IAmazonDynamoDB source, IAmazonDynamoDB target, string tableName, string targetTableName)
         {
             _source = source ?? throw new ArgumentNullException(nameof(source));
             _target = target ?? throw new ArgumentNullException(nameof(target));
+            _tableName = tableName ?? throw new ArgumentNullException(nameof(tableName));
+            _targetTableName = targetTableName ?? throw new ArgumentNullException(nameof(targetTableName));
         }
 
-        public async Task CopyTableAsync(string tableName, string targetTableName)
+        public async Task ExecuteAsync()
         {
-            var sourceTable = await GetTableInformation(_source, tableName) ?? throw new Exception("Source table doesn't exist");
+            var sourceTable = await _source.GetTableInformation(_tableName) ?? throw new Exception("Source table doesn't exist");
 
-            if (!await CheckIfTableExists(_target, targetTableName))
+            if (!await _target.CheckIfTableExists(_targetTableName))
             {
                 var response = await _target.CreateTableAsync(new CreateTableRequest
                 {
-                    TableName = targetTableName,
+                    TableName = _targetTableName,
                     AttributeDefinitions = sourceTable.AttributeDefinitions,
                     BillingMode = sourceTable.BillingModeSummary.BillingMode,
                     GlobalSecondaryIndexes = (from index in sourceTable.GlobalSecondaryIndexes
@@ -136,25 +194,41 @@ namespace CloneDynamoDbTable
             }
             else
             {
-                Console.WriteLine($"Table {targetTableName} already exists. Skipping.");
+                Console.WriteLine($"Table {_targetTableName} already exists. Skipping.");
             }
         }
+    }
 
-        public async Task CloneContentAsync(string tableName, string targetTableName)
+    internal class CloneTableContentCommand
+    {
+        private readonly IAmazonDynamoDB _source;
+        private readonly IAmazonDynamoDB _target;
+        private readonly string _tableName;
+        private readonly string _targetTableName;
+
+        public CloneTableContentCommand(IAmazonDynamoDB source, IAmazonDynamoDB target, string tableName, string targetTableName)
         {
-            if (!await CheckIfTableExists(_source, tableName))
+            _source = source ?? throw new ArgumentNullException(nameof(source));
+            _target = target ?? throw new ArgumentNullException(nameof(target));
+            _tableName = tableName ?? throw new ArgumentNullException(nameof(tableName));
+            _targetTableName = targetTableName ?? throw new ArgumentNullException(nameof(targetTableName));
+        }
+
+        public async Task ExecuteAsync()
+        {
+            if (!await _source.CheckIfTableExists(_tableName))
             {
                 throw new Exception("Source table doesn't exist");
             }
 
-            if (!await CheckIfTableExists(_target, targetTableName))
+            if (!await _target.CheckIfTableExists(_targetTableName))
             {
                 throw new Exception("Target table doesn't exist");
             }
 
             var scanRequest = new ScanRequest
             {
-                TableName = tableName
+                TableName = _tableName
             };
 
             var writeRequests = _source.Paginators
@@ -168,7 +242,7 @@ namespace CloneDynamoDbTable
                                        {
                                            RequestItems = new Dictionary<string, List<WriteRequest>>
                                            {
-                                               [targetTableName] = new List<WriteRequest>(page)
+                                               [_targetTableName] = new List<WriteRequest>(page)
                                            }
                                        });
 
@@ -177,9 +251,16 @@ namespace CloneDynamoDbTable
                 await _target.BatchWriteItemAsync(request);
             }
         }
+    }
 
-        private static async Task<TableDescription> GetTableInformation(IAmazonDynamoDB client, string tableName)
+    internal static class DynamoDbClientHelpers
+    {
+        public static async Task<TableDescription> GetTableInformation(this IAmazonDynamoDB client, string tableName)
         {
+            _ = client ?? throw new ArgumentNullException(nameof(client));
+
+            _ = tableName ?? throw new ArgumentNullException(nameof(tableName));
+
             try
             {
                 var response = await client.DescribeTableAsync(tableName);
@@ -192,6 +273,6 @@ namespace CloneDynamoDbTable
             }
         }
 
-        private static async Task<bool> CheckIfTableExists(IAmazonDynamoDB client, string tableName) => await GetTableInformation(client, tableName) != null;
+        public static async Task<bool> CheckIfTableExists(this IAmazonDynamoDB client, string tableName) => await GetTableInformation(client, tableName) != null;
     }
 }
